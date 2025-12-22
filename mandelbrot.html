@@ -1,0 +1,1094 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Fraktal Explorer – Mandelbrot / Julia</title>
+  <style>
+    :root {
+      --panel-bg: rgba(20,20,20,0.85);
+      --panel-fg: #eaeaea;
+      --accent: #7dd3fc;
+    }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
+
+    #glcanvas {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+      touch-action: none;
+    }
+
+    #ui {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      width: 340px;
+      max-width: calc(100vw - 24px);
+      background: var(--panel-bg);
+      color: var(--panel-fg);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 12px 12px 10px;
+      backdrop-filter: blur(8px);
+    }
+
+    #ui h1 {
+      font-size: 15px;
+      margin: 0 0 10px;
+      font-weight: 650;
+    }
+
+    #ui .row {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 8px;
+      align-items: center;
+      margin: 6px 0;
+    }
+
+    #ui label {
+      font-size: 12px;
+      opacity: 0.9;
+    }
+
+    #ui input, #ui select, #ui button {
+      font-size: 12px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(0,0,0,0.25);
+      color: var(--panel-fg);
+      outline: none;
+    }
+
+    #ui input[type="range"] {
+      padding: 0;
+    }
+
+    #ui button {
+      cursor: pointer;
+      background: rgba(125,211,252,0.12);
+      border-color: rgba(125,211,252,0.35);
+    }
+
+    #ui button:hover {
+      background: rgba(125,211,252,0.18);
+    }
+
+    #ui .buttons {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+
+    #ui .buttons button {
+      flex: 1 1 auto;
+    }
+
+    #ui details {
+      margin-top: 8px;
+    }
+
+    #ui summary {
+      cursor: pointer;
+      font-size: 12px;
+      opacity: 0.95;
+    }
+
+    #ui .hint {
+      margin: 10px 0 0;
+      font-size: 11px;
+      opacity: 0.75;
+      line-height: 1.25;
+    }
+
+    fieldset {
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 10px;
+      padding: 8px;
+      margin: 8px 0 6px;
+    }
+
+    legend {
+      font-size: 11px;
+      opacity: 0.8;
+      padding: 0 6px;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    #hud {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      background: rgba(0,0,0,0.35);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.35;
+      pointer-events: none;
+      backdrop-filter: blur(8px);
+    }
+
+    #hud .small {
+      opacity: 0.75;
+      font-size: 11px;
+    }
+
+    #error {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-size: 14px;
+      padding: 24px;
+      text-align: center;
+    }
+
+    :fullscreen #ui {
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="glcanvas"></canvas>
+
+  <div id="ui">
+    <h1>Fraktal‑Explorer (Mandelbrot / Julia)</h1>
+
+    <div class="row">
+      <label for="setType">Set</label>
+      <select id="setType">
+        <option value="0">Mandelbrot</option>
+        <option value="1">Julia</option>
+      </select>
+    </div>
+
+    <fieldset id="juliaBox" class="hidden">
+      <legend>Julia‑Parameter</legend>
+      <div class="row">
+        <label for="cRe">c – Real</label>
+        <input id="cRe" type="number" step="0.0001" />
+      </div>
+      <div class="row">
+        <label for="cIm">c – Imaginär</label>
+        <input id="cIm" type="number" step="0.0001" />
+      </div>
+      <div class="row">
+        <label for="cMouse">c per Maus</label>
+        <input id="cMouse" type="checkbox" />
+      </div>
+    </fieldset>
+
+    <div class="row">
+      <label for="iter">Iterationen</label>
+      <input id="iter" type="range" min="50" max="2000" step="1" />
+    </div>
+    <div class="row">
+      <label>Iterationen</label>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <span id="iterVal" style="min-width:48px; font-variant-numeric: tabular-nums;">—</span>
+        <label style="display:flex; gap:6px; align-items:center; font-size:12px;">
+          <input id="autoIter" type="checkbox" checked />
+          auto (mehr beim Zoom)
+        </label>
+      </div>
+    </div>
+
+    <div class="row">
+      <label for="smooth">Smooth Color</label>
+      <input id="smooth" type="checkbox" checked />
+    </div>
+
+    <div class="row">
+      <label for="colorShift">Farbversatz</label>
+      <input id="colorShift" type="range" min="0" max="1" step="0.001" />
+    </div>
+
+    <details>
+      <summary>Ansicht (Center / Skala)</summary>
+      <div class="row">
+        <label for="centerX">Center X</label>
+        <input id="centerX" type="number" step="0.000001" />
+      </div>
+      <div class="row">
+        <label for="centerY">Center Y</label>
+        <input id="centerY" type="number" step="0.000001" />
+      </div>
+      <div class="row">
+        <label for="scale">Skala</label>
+        <input id="scale" type="number" step="0.000001" />
+      </div>
+      <div class="buttons">
+        <button id="applyView" type="button">Übernehmen</button>
+        <button id="copyLink" type="button">Link kopieren</button>
+      </div>
+    </details>
+
+    <div class="buttons">
+      <button id="reset" type="button">Reset</button>
+      <button id="random" type="button">Random Spot</button>
+      <button id="fullscreen" type="button">Fullscreen Auto‑Zoom</button>
+    </div>
+
+    <p class="hint">
+      Maus: <b>Scrollrad</b> Zoom • <b>Ziehen</b> Pan • <b>Doppelklick</b> Zoom‑In<br />
+      Touch: 1 Finger Pan • 2 Finger Pinch‑Zoom<br />
+      Fullscreen: Auto‑Zoom (ESC zum Beenden)
+    </p>
+  </div>
+
+  <div id="hud" class="hidden"></div>
+
+  <script type="module">
+    /**
+     * Fraktal Explorer – WebGL2 (Mandelbrot + Julia)
+     * - Non-fullscreen: UI, Pan+Zoom, Parameter ändern.
+     * - Fullscreen: UI ausgeblendet, Auto-Zoom in zufällige interessante Bereiche.
+     *
+     * Hinweis: Sehr tiefe Zooms sind durch Float-Praezision von WebGL begrenzt (ca. ~1e-7 ... 1e-8).
+     */
+
+    const canvas = document.getElementById('glcanvas');
+    const ui = document.getElementById('ui');
+    const hud = document.getElementById('hud');
+
+    const gl = canvas.getContext('webgl2', {
+      antialias: false,
+      depth: false,
+      stencil: false,
+      preserveDrawingBuffer: false
+    });
+
+    if (!gl) {
+      const div = document.createElement('div');
+      div.id = 'error';
+      div.innerHTML = `
+        <div style="max-width:760px;">
+          <h2 style="margin:0 0 8px;">WebGL2 nicht verfügbar</h2>
+          <p style="opacity:0.85; line-height:1.4;">
+            Dieser Mandelbrot/Julia‑Generator nutzt WebGL2 für Geschwindigkeit. Bitte einen modernen Browser nutzen
+            (Chrome/Edge/Firefox/Safari) und sicherstellen, dass WebGL aktiviert ist.
+          </p>
+        </div>
+      `;
+      document.body.appendChild(div);
+      throw new Error('WebGL2 not supported');
+    }
+
+    function clamp(x, a, b) { return Math.min(b, Math.max(a, x)); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function easeInOutCubic(t) {
+      return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    }
+
+    // device pixel ratio (may be increased dynamically at deep zooms)
+    let dpr = Math.max(1, window.devicePixelRatio || 1);
+    let aspect = 1;
+
+    const BASE = {
+      mandelbrot: { cx: -0.75, cy: 0.0, scale: 1.75 }, // scale = half-width in complex plane
+      julia:      { cx:  0.0,  cy: 0.0, scale: 1.6  }
+    };
+
+    const state = {
+      setType: 0, // 0 Mandelbrot, 1 Julia
+      cx: BASE.mandelbrot.cx,
+      cy: BASE.mandelbrot.cy,
+      scale: BASE.mandelbrot.scale,
+
+      maxIter: 600,
+      autoIter: true,
+
+      smooth: true,
+      colorShift: 0.0,
+      escapeRadius: 4.0,
+
+      juliaCRe: -0.8,
+      juliaCIm: 0.156,
+      cFromMouse: false
+    };
+
+    const LIMITS = {
+      minScale: 1e-7, // tiefer ist in WebGL Float meist nicht mehr stabil
+      maxScale: 8.0
+    };
+
+    const mandelbrotLandmarks = [
+      // "klassische" Spots (moderate Zooms, WebGL-freundlich)
+      { x: -0.743643887, y:  0.131825904, scale: 0.0009  },
+      { x: -0.743640850, y:  0.131827330, scale: 0.00035 },
+      { x: -1.250660000, y:  0.020120000, scale: 0.0030  },
+      { x: -0.101096363, y:  0.956286510, scale: 0.0020  },
+      { x:  0.001643722, y: -0.822467633, scale: 0.0010  },
+      { x: -0.160701350, y:  1.037566500, scale: 0.0015  },
+      { x: -0.745290000, y:  0.113075000, scale: 0.0020  }
+    ];
+
+    // ---------- WebGL program ----------
+    const VERT = `#version 300 es
+    precision highp float;
+    in vec2 a_pos;
+    out vec2 v_uv;
+    void main() {
+      v_uv = a_pos * 0.5 + 0.5;
+      gl_Position = vec4(a_pos, 0.0, 1.0);
+    }`;
+
+    const FRAG = `#version 300 es
+    precision highp float;
+
+    out vec4 outColor;
+
+    uniform vec2  u_resolution;
+    uniform float u_aspect;      // width/height
+    uniform vec2  u_center;
+    uniform float u_scale;       // half-width in complex plane
+    uniform int   u_maxIter;
+    uniform int   u_setType;     // 0 Mandelbrot, 1 Julia
+    uniform vec2  u_juliaC;
+    uniform float u_colorShift;
+    uniform float u_escapeRadius;
+    uniform int   u_smooth;      // 0/1
+
+    const float PI = 3.141592653589793;
+    const int MAX_ITER = 2000;   // harte Obergrenze (Slider ist <= 2000)
+
+    vec3 palette(float t) {
+      // Cosine palette (Inigo Quilez style)
+      vec3 a = vec3(0.55);
+      vec3 b = vec3(0.45);
+      vec3 c = vec3(1.0);
+      vec3 d = vec3(0.00, 0.10, 0.20);
+      return a + b * cos(2.0 * PI * (c * t + d));
+    }
+
+    void main() {
+      vec2 st = gl_FragCoord.xy / u_resolution;
+      st.y = 1.0 - st.y; // y nach oben positiv (passend zu UI-Rechnung)
+      vec2 uv = st * 2.0 - 1.0;
+      uv.y /= u_aspect;  // aspect-correct
+
+      vec2 c;
+      vec2 z;
+
+      if (u_setType == 0) {
+        c = u_center + uv * u_scale;
+        z = vec2(0.0);
+      } else {
+        z = u_center + uv * u_scale;
+        c = u_juliaC;
+      }
+
+      float r2 = u_escapeRadius * u_escapeRadius;
+      float m2 = 0.0;
+
+      int i;
+      for (i = 0; i < MAX_ITER; i++) {
+        if (i >= u_maxIter) break;
+
+        // z = z^2 + c
+        float x = z.x*z.x - z.y*z.y + c.x;
+        float y = 2.0*z.x*z.y + c.y;
+        z = vec2(x, y);
+
+        m2 = dot(z, z);
+        if (m2 > r2) break;
+      }
+
+      if (i >= u_maxIter) {
+        outColor = vec4(0.0, 0.0, 0.0, 1.0);
+        return;
+      }
+
+      float it = float(i);
+
+      if (u_smooth != 0) {
+        // Smooth iteration count
+        float log_zn = log(m2) / 2.0;
+        float nu = log(log_zn / log(2.0)) / log(2.0);
+        it = it + 1.0 - nu;
+      }
+
+      // Improved coloring for large iteration counts:
+      // Use a logarithmic normalization so high max-iteration values
+      // do not compress colors into very thin bands.
+      float t;
+      if (it <= 0.0) {
+        t = 0.0;
+      } else {
+        float maxIterF = float(u_maxIter) + 1.0;
+        t = fract((log(it + 1.0) / log(maxIterF)) + u_colorShift);
+      }
+
+      vec3 col = palette(t);
+
+      // leichte Gamma-Korrektur
+      col = pow(col, vec3(0.9));
+
+      outColor = vec4(col, 1.0);
+    }`;
+
+    function compileShader(type, src) {
+      const sh = gl.createShader(type);
+      gl.shaderSource(sh, src);
+      gl.compileShader(sh);
+      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+        const msg = gl.getShaderInfoLog(sh) || '(no log)';
+        gl.deleteShader(sh);
+        throw new Error('Shader compile error: ' + msg);
+      }
+      return sh;
+    }
+
+    function createProgram(vsSrc, fsSrc) {
+      const vs = compileShader(gl.VERTEX_SHADER, vsSrc);
+      const fs = compileShader(gl.FRAGMENT_SHADER, fsSrc);
+      const prog = gl.createProgram();
+      gl.attachShader(prog, vs);
+      gl.attachShader(prog, fs);
+      gl.linkProgram(prog);
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+        const msg = gl.getProgramInfoLog(prog) || '(no log)';
+        gl.deleteProgram(prog);
+        throw new Error('Program link error: ' + msg);
+      }
+      return prog;
+    }
+
+    const prog = createProgram(VERT, FRAG);
+    gl.useProgram(prog);
+
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    // full-screen quad (triangle strip)
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      -1, -1,
+       1, -1,
+      -1,  1,
+       1,  1
+    ]), gl.STATIC_DRAW);
+
+    const a_pos = gl.getAttribLocation(prog, 'a_pos');
+    gl.enableVertexAttribArray(a_pos);
+    gl.vertexAttribPointer(a_pos, 2, gl.FLOAT, false, 0, 0);
+
+    const U = {
+      resolution: gl.getUniformLocation(prog, 'u_resolution'),
+      aspect: gl.getUniformLocation(prog, 'u_aspect'),
+      center: gl.getUniformLocation(prog, 'u_center'),
+      scale: gl.getUniformLocation(prog, 'u_scale'),
+      maxIter: gl.getUniformLocation(prog, 'u_maxIter'),
+      setType: gl.getUniformLocation(prog, 'u_setType'),
+      juliaC: gl.getUniformLocation(prog, 'u_juliaC'),
+      colorShift: gl.getUniformLocation(prog, 'u_colorShift'),
+      escapeRadius: gl.getUniformLocation(prog, 'u_escapeRadius'),
+      smooth: gl.getUniformLocation(prog, 'u_smooth')
+    };
+
+    // ---------- Resize ----------
+    function resize() {
+      const rect = canvas.getBoundingClientRect();
+
+      // increase DPR/supersampling when zoomed in deeply to reduce pixelation
+      const base = window.devicePixelRatio || 1;
+      let supersample = 1.0;
+      if (state.scale < 2e-5) supersample = 2.5;       // very deep zoom -> stronger supersampling
+      else if (state.scale < 1e-4) supersample = 1.5;  // moderate deep zoom -> mild supersampling
+      const MAX_DPR = 4.0;
+      dpr = Math.max(1, Math.min(MAX_DPR, base * supersample));
+
+      const w = Math.max(2, Math.floor(rect.width * dpr));
+      const h = Math.max(2, Math.floor(rect.height * dpr));
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+        gl.viewport(0, 0, w, h);
+      }
+      aspect = canvas.width / canvas.height;
+    }
+    window.addEventListener('resize', resize, { passive: true });
+    resize();
+
+    // ---------- Coordinate helpers ----------
+    function screenToComplex(clientX, clientY) {
+      const rect = canvas.getBoundingClientRect();
+      // convert client coords to canvas pixel coords (account for DPR)
+      const px = (clientX - rect.left) * dpr;
+      const py = (clientY - rect.top) * dpr;
+      const nx = px / canvas.width;   // 0..1
+      const ny = py / canvas.height;  // 0..1 top->bottom (in canvas pixels)
+      const stx = nx;
+      const sty = 1 - ny;             // flip
+      const uvx = stx * 2 - 1;
+      const uvy = (sty * 2 - 1) / aspect;
+      return {
+        x: state.cx + uvx * state.scale,
+        y: state.cy + uvy * state.scale
+      };
+    }
+
+    function zoomAt(clientX, clientY, zoomFactor) {
+      const before = screenToComplex(clientX, clientY);
+      const newScale = clamp(state.scale * zoomFactor, LIMITS.minScale, LIMITS.maxScale);
+      state.scale = newScale;
+      const after = screenToComplex(clientX, clientY);
+      state.cx += (before.x - after.x);
+      state.cy += (before.y - after.y);
+    }
+
+    function resetView() {
+      const base = (state.setType === 0) ? BASE.mandelbrot : BASE.julia;
+      state.cx = base.cx;
+      state.cy = base.cy;
+      state.scale = base.scale;
+    }
+
+    function calcAutoIter() {
+      const base = (state.setType === 0) ? BASE.mandelbrot : BASE.julia;
+      const zoom = Math.max(1, base.scale / Math.max(state.scale, 1e-12));
+      const it = Math.round(220 + Math.log2(zoom) * 55);
+      return clamp(it, 50, 2000);
+    }
+
+    // ---------- Rendering ----------
+    function draw() {
+      gl.useProgram(prog);
+      gl.uniform2f(U.resolution, canvas.width, canvas.height);
+      gl.uniform1f(U.aspect, aspect);
+      gl.uniform2f(U.center, state.cx, state.cy);
+      gl.uniform1f(U.scale, state.scale);
+      gl.uniform1i(U.maxIter, clamp(state.maxIter | 0, 1, 2000));
+      gl.uniform1i(U.setType, state.setType | 0);
+      gl.uniform2f(U.juliaC, state.juliaCRe, state.juliaCIm);
+      gl.uniform1f(U.colorShift, state.colorShift);
+      gl.uniform1f(U.escapeRadius, state.escapeRadius);
+      gl.uniform1i(U.smooth, state.smooth ? 1 : 0);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+
+    // ---------- UI wiring ----------
+    const elSetType = document.getElementById('setType');
+    const elJuliaBox = document.getElementById('juliaBox');
+    const elCRe = document.getElementById('cRe');
+    const elCIm = document.getElementById('cIm');
+    const elCMouse = document.getElementById('cMouse');
+
+    const elIter = document.getElementById('iter');
+    const elIterVal = document.getElementById('iterVal');
+    const elAutoIter = document.getElementById('autoIter');
+
+    const elSmooth = document.getElementById('smooth');
+    const elColorShift = document.getElementById('colorShift');
+
+    const elCenterX = document.getElementById('centerX');
+    const elCenterY = document.getElementById('centerY');
+    const elScale = document.getElementById('scale');
+    const elApplyView = document.getElementById('applyView');
+    const elCopyLink = document.getElementById('copyLink');
+
+    const elReset = document.getElementById('reset');
+    const elRandom = document.getElementById('random');
+    const elFullscreen = document.getElementById('fullscreen');
+
+    function syncUIFromState() {
+      elSetType.value = String(state.setType);
+      elJuliaBox.classList.toggle('hidden', state.setType !== 1);
+
+      elCRe.value = String(state.juliaCRe);
+      elCIm.value = String(state.juliaCIm);
+      elCMouse.checked = !!state.cFromMouse;
+
+      elIter.value = String(state.maxIter);
+      elIterVal.textContent = String(state.maxIter);
+      elAutoIter.checked = !!state.autoIter;
+
+      elSmooth.checked = !!state.smooth;
+      elColorShift.value = String(state.colorShift);
+
+      elCenterX.value = String(state.cx);
+      elCenterY.value = String(state.cy);
+      elScale.value = String(state.scale);
+    }
+
+    function syncStateFromViewInputs() {
+      const cx = Number(elCenterX.value);
+      const cy = Number(elCenterY.value);
+      const sc = Number(elScale.value);
+      if (Number.isFinite(cx)) state.cx = cx;
+      if (Number.isFinite(cy)) state.cy = cy;
+      if (Number.isFinite(sc)) state.scale = clamp(sc, LIMITS.minScale, LIMITS.maxScale);
+    }
+
+    function updateIterUI() {
+      elIterVal.textContent = String(state.maxIter);
+    }
+
+    elSetType.addEventListener('change', () => {
+      state.setType = Number(elSetType.value) | 0;
+      resetView();
+      syncUIFromState();
+    });
+
+    elCRe.addEventListener('input', () => { state.juliaCRe = Number(elCRe.value); });
+    elCIm.addEventListener('input', () => { state.juliaCIm = Number(elCIm.value); });
+    elCMouse.addEventListener('change', () => { state.cFromMouse = elCMouse.checked; });
+
+    elIter.addEventListener('input', () => {
+      state.maxIter = Number(elIter.value) | 0;
+      state.autoIter = false;
+      elAutoIter.checked = false;
+      updateIterUI();
+    });
+
+    elAutoIter.addEventListener('change', () => {
+      state.autoIter = elAutoIter.checked;
+    });
+
+    elSmooth.addEventListener('change', () => {
+      state.smooth = elSmooth.checked;
+    });
+
+    elColorShift.addEventListener('input', () => {
+      state.colorShift = Number(elColorShift.value);
+    });
+
+    elApplyView.addEventListener('click', () => {
+      syncStateFromViewInputs();
+    });
+
+    elCopyLink.addEventListener('click', async () => {
+      const params = new URLSearchParams();
+      params.set('set', String(state.setType));
+      params.set('cx', state.cx.toString());
+      params.set('cy', state.cy.toString());
+      params.set('scale', state.scale.toString());
+      params.set('iter', String(state.maxIter | 0));
+      params.set('smooth', state.smooth ? '1' : '0');
+      params.set('shift', state.colorShift.toString());
+      params.set('cre', state.juliaCRe.toString());
+      params.set('cim', state.juliaCIm.toString());
+
+      const baseUrl = location.href.split('#')[0];
+      const url = `${baseUrl}#${params.toString()}`;
+
+      try {
+        await navigator.clipboard.writeText(url);
+        elCopyLink.textContent = 'Kopiert!';
+        setTimeout(() => (elCopyLink.textContent = 'Link kopieren'), 900);
+      } catch {
+        prompt('Kopieren nicht möglich – hier ist der Link:', url);
+      }
+    });
+
+    elReset.addEventListener('click', () => {
+      stopAuto();
+      resetView();
+      syncUIFromState();
+    });
+
+    elFullscreen.addEventListener('click', async () => {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    });
+
+    function parseHash() {
+      if (!location.hash || location.hash.length < 2) return;
+      const raw = location.hash.slice(1);
+      const p = new URLSearchParams(raw);
+
+      const set = Number(p.get('set'));
+      if (set === 0 || set === 1) state.setType = set;
+
+      const cx = Number(p.get('cx')); if (Number.isFinite(cx)) state.cx = cx;
+      const cy = Number(p.get('cy')); if (Number.isFinite(cy)) state.cy = cy;
+      const sc = Number(p.get('scale')); if (Number.isFinite(sc)) state.scale = clamp(sc, LIMITS.minScale, LIMITS.maxScale);
+
+      const it = Number(p.get('iter')); if (Number.isFinite(it)) state.maxIter = clamp(it | 0, 50, 2000);
+
+      const sm = p.get('smooth'); if (sm === '0' || sm === '1') state.smooth = sm === '1';
+      const sh = Number(p.get('shift')); if (Number.isFinite(sh)) state.colorShift = clamp(sh, 0, 1);
+
+      const cre = Number(p.get('cre')); if (Number.isFinite(cre)) state.juliaCRe = cre;
+      const cim = Number(p.get('cim')); if (Number.isFinite(cim)) state.juliaCIm = cim;
+    }
+
+    window.addEventListener('hashchange', () => {
+      parseHash();
+      syncUIFromState();
+    });
+
+    parseHash();
+    syncUIFromState();
+
+    // ---------- Manual interaction (Pan/Zoom + Julia c from mouse) ----------
+    const pointers = new Map();
+    let dragging = false;
+    let lastPanX = 0;
+    let lastPanY = 0;
+    let lastPinchDist = null;
+
+    function panByPixels(dx, dy) {
+      // dx/dy are from client events (CSS pixels). Convert to canvas/device pixels by dpr.
+      const ddx = dx * dpr;
+      const ddy = dy * dpr;
+      const pxToComplexX = (2 * state.scale) / canvas.width;
+      const pxToComplexY = (2 * state.scale) / (canvas.height * aspect);
+      state.cx -= ddx * pxToComplexX;
+      state.cy -= ddy * pxToComplexY;
+    }
+
+    canvas.addEventListener('pointerdown', (e) => {
+      if (auto.active) return;
+      canvas.setPointerCapture(e.pointerId);
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 1) {
+        dragging = true;
+        lastPanX = e.clientX;
+        lastPanY = e.clientY;
+      } else {
+        dragging = false;
+        lastPinchDist = null;
+      }
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+      const p = pointers.get(e.pointerId);
+      if (p) { p.x = e.clientX; p.y = e.clientY; }
+
+      if (!auto.active && state.setType === 1 && state.cFromMouse) {
+        const rect = canvas.getBoundingClientRect();
+        const nx = (e.clientX - rect.left) / rect.width;
+        const ny = (e.clientY - rect.top) / rect.height;
+        state.juliaCRe = lerp(-1.5, 1.5, nx);
+        state.juliaCIm = lerp( 1.5, -1.5, ny);
+        elCRe.value = state.juliaCRe.toFixed(6);
+        elCIm.value = state.juliaCIm.toFixed(6);
+      }
+
+      if (auto.active) return;
+
+      if (pointers.size === 1 && dragging) {
+        const dx = e.clientX - lastPanX;
+        const dy = e.clientY - lastPanY;
+        lastPanX = e.clientX;
+        lastPanY = e.clientY;
+        panByPixels(dx, dy);
+      }
+
+      if (pointers.size === 2) {
+        const pts = Array.from(pointers.values());
+        const dx = pts[0].x - pts[1].x;
+        const dy = pts[0].y - pts[1].y;
+        const dist = Math.hypot(dx, dy);
+
+        const midX = (pts[0].x + pts[1].x) * 0.5;
+        const midY = (pts[0].y + pts[1].y) * 0.5;
+
+        if (lastPinchDist != null && dist > 0) {
+          const ratio = dist / lastPinchDist;
+          const zoomFactor = 1 / ratio;
+          zoomAt(midX, midY, zoomFactor);
+        }
+        lastPinchDist = dist;
+      }
+    });
+
+    function clearPointer(e) {
+      pointers.delete(e.pointerId);
+      if (pointers.size === 0) {
+        dragging = false;
+        lastPinchDist = null;
+        elCenterX.value = String(state.cx);
+        elCenterY.value = String(state.cy);
+        elScale.value = String(state.scale);
+      }
+    }
+
+    canvas.addEventListener('pointerup', clearPointer);
+    canvas.addEventListener('pointercancel', clearPointer);
+
+    canvas.addEventListener('wheel', (e) => {
+      if (auto.active) return;
+      e.preventDefault();
+      const zoomFactor = Math.exp(e.deltaY * 0.0015);
+      zoomAt(e.clientX, e.clientY, zoomFactor);
+
+      elCenterX.value = String(state.cx);
+      elCenterY.value = String(state.cy);
+      elScale.value = String(state.scale);
+    }, { passive: false });
+
+    canvas.addEventListener('dblclick', (e) => {
+      if (auto.active) return;
+      zoomAt(e.clientX, e.clientY, 0.5);
+      elCenterX.value = String(state.cx);
+      elCenterY.value = String(state.cy);
+      elScale.value = String(state.scale);
+    });
+
+    // ---------- Random interesting spot (manual + auto uses it too) ----------
+    function escapeIter(px, py, maxIter, setType, cRe, cIm, escapeRadius) {
+      let zx, zy, cr, ci;
+      if (setType === 0) { zx = 0; zy = 0; cr = px; ci = py; }
+      else { zx = px; zy = py; cr = cRe; ci = cIm; }
+
+      const r2 = escapeRadius * escapeRadius;
+      let i = 0;
+      while (i < maxIter) {
+        const x = zx * zx - zy * zy + cr;
+        const y = 2 * zx * zy + ci;
+        zx = x; zy = y;
+        if (zx * zx + zy * zy > r2) break;
+        i++;
+      }
+      return i;
+    }
+
+    function findInterestingPoint() {
+      const setType = state.setType;
+      const maxIter = Math.min(350, state.maxIter | 0);
+      const bounds = (setType === 0)
+        ? { xMin: -2.5, xMax: 1.0,  yMin: -1.5, yMax: 1.5 }
+        : { xMin: -1.6, xMax: 1.6,  yMin: -1.6, yMax: 1.6 };
+
+      let bestScore = -1;
+      let best = { x: (setType === 0 ? BASE.mandelbrot.cx : 0), y: 0 };
+
+      const tries = 600;
+      const eps = (setType === 0) ? 0.002 : 0.003;
+
+      for (let i = 0; i < tries; i++) {
+        const x = lerp(bounds.xMin, bounds.xMax, Math.random());
+        const y = lerp(bounds.yMin, bounds.yMax, Math.random());
+
+        const it = escapeIter(x, y, maxIter, setType, state.juliaCRe, state.juliaCIm, state.escapeRadius);
+        if (it < 10 || it > maxIter - 2) continue;
+
+        const itL = escapeIter(x - eps, y, maxIter, setType, state.juliaCRe, state.juliaCIm, state.escapeRadius);
+        const itR = escapeIter(x + eps, y, maxIter, setType, state.juliaCRe, state.juliaCIm, state.escapeRadius);
+        const itU = escapeIter(x, y + eps, maxIter, setType, state.juliaCRe, state.juliaCIm, state.escapeRadius);
+        const itD = escapeIter(x, y - eps, maxIter, setType, state.juliaCRe, state.juliaCIm, state.escapeRadius);
+
+        const v = Math.abs(itL - itR) + Math.abs(itU - itD) + 0.5 * (Math.abs(itL - itU) + Math.abs(itR - itD));
+        const p = it / maxIter;
+        const band = p * (1 - p);
+        const score = v * (0.35 + 2.2 * band);
+
+        if (score > bestScore) {
+          bestScore = score;
+          best = { x, y };
+        }
+      }
+      return best;
+    }
+
+    elRandom.addEventListener('click', () => {
+      stopAuto();
+      const base = (state.setType === 0) ? BASE.mandelbrot : BASE.julia;
+
+      const useLandmark = (state.setType === 0) && (Math.random() < 0.5);
+      if (useLandmark) {
+        const lm = mandelbrotLandmarks[Math.floor(Math.random() * mandelbrotLandmarks.length)];
+        state.cx = lm.x;
+        state.cy = lm.y;
+        state.scale = clamp(lm.scale, LIMITS.minScale, LIMITS.maxScale);
+      } else {
+        const pt = findInterestingPoint();
+        state.cx = pt.x;
+        state.cy = pt.y;
+        state.scale = clamp(base.scale / (25 + Math.random() * 120), LIMITS.minScale, LIMITS.maxScale);
+      }
+
+      syncUIFromState();
+    });
+
+    // ---------- Fullscreen auto-zoom ----------
+    const auto = {
+      active: false,
+      t0: 0,
+      dur: 1,
+      fromCx: 0,
+      fromCy: 0,
+      fromScale: 1,
+      toCx: 0,
+      toCy: 0,
+      toScale: 1,
+      onDone: null
+    };
+
+    function beginTransition(toCx, toCy, toScale, durationSec, onDone) {
+      auto.t0 = performance.now();
+      auto.dur = Math.max(0.001, durationSec);
+      auto.fromCx = state.cx;
+      auto.fromCy = state.cy;
+      auto.fromScale = state.scale;
+      auto.toCx = toCx;
+      auto.toCy = toCy;
+      auto.toScale = clamp(toScale, LIMITS.minScale, LIMITS.maxScale);
+      auto.onDone = onDone || null;
+    }
+
+    function pickAutoTarget() {
+      const base = (state.setType === 0) ? BASE.mandelbrot : BASE.julia;
+      const useLandmark = (state.setType === 0) && (Math.random() < 0.40);
+
+      let cx, cy, targetScale;
+
+      if (useLandmark) {
+        const lm = mandelbrotLandmarks[Math.floor(Math.random() * mandelbrotLandmarks.length)];
+        cx = lm.x; cy = lm.y;
+        const mult = 0.7 + Math.random() * 1.4;
+        targetScale = clamp(lm.scale * mult, LIMITS.minScale, LIMITS.maxScale);
+      } else {
+        const pt = findInterestingPoint();
+        cx = pt.x; cy = pt.y;
+        const zoomFactor = 35 + Math.random() * 240;
+        targetScale = clamp(base.scale / zoomFactor, LIMITS.minScale, LIMITS.maxScale);
+      }
+
+      const travelSec = 2.5 + Math.random() * 2.0;
+      const zoomSec = 14 + Math.random() * 20;
+      return { cx, cy, base, travelSec, zoomSec, targetScale };
+    }
+
+    function scheduleNextAutoHop() {
+      const { cx, cy, base, travelSec, zoomSec, targetScale } = pickAutoTarget();
+
+      // 1) Reset auf Basisansicht (kurz)
+      beginTransition(base.cx, base.cy, base.scale, 1.8, () => {
+        // 2) "Flight" zum Target
+        beginTransition(cx, cy, base.scale, travelSec, () => {
+          // 3) Langsam reinzoomen
+          beginTransition(cx, cy, targetScale, zoomSec, () => {
+            scheduleNextAutoHop();
+          });
+        });
+      });
+    }
+
+    function startAuto() {
+      if (auto.active) return;
+      auto.active = true;
+      hud.classList.remove('hidden');
+      ui.classList.add('hidden');
+      scheduleNextAutoHop();
+    }
+
+    function stopAuto() {
+      auto.active = false;
+      auto.onDone = null;
+    }
+
+    document.addEventListener('fullscreenchange', () => {
+      const fs = !!document.fullscreenElement;
+      if (fs) startAuto();
+      else {
+        stopAuto();
+        hud.classList.add('hidden');
+        ui.classList.remove('hidden');
+        syncUIFromState();
+      }
+    });
+
+    window.addEventListener('keydown', async (e) => {
+      if (e.key === 'f' || e.key === 'F') {
+        if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
+        else await document.exitFullscreen();
+      }
+      if (e.key === 'r' || e.key === 'R') {
+        stopAuto();
+        resetView();
+        syncUIFromState();
+      }
+      if (e.key === ' ') {
+        // Space: Pause/Resume im Fullscreen
+        if (document.fullscreenElement) {
+          auto.active = !auto.active;
+          if (auto.active && !auto.onDone) scheduleNextAutoHop();
+        }
+      }
+    });
+
+    // ---------- Animation loop ----------
+    let last = performance.now();
+
+    function updateAuto(now) {
+      const t = (now - auto.t0) / (auto.dur * 1000);
+      const e = easeInOutCubic(clamp(t, 0, 1));
+      state.cx = lerp(auto.fromCx, auto.toCx, e);
+      state.cy = lerp(auto.fromCy, auto.toCy, e);
+      state.scale = auto.fromScale * Math.pow(auto.toScale / auto.fromScale, e);
+
+      if (t >= 1) {
+        const done = auto.onDone;
+        auto.onDone = null;
+        if (typeof done === 'function') done();
+      }
+    }
+
+    function updateHud() {
+      if (hud.classList.contains('hidden')) return;
+
+      const setName = state.setType === 0 ? 'Mandelbrot' : 'Julia';
+      const baseScale = state.setType === 0 ? BASE.mandelbrot.scale : BASE.julia.scale;
+      const zoom = baseScale / state.scale;
+      const zoomTxt = zoom >= 1 ? zoom.toFixed(1) + '×' : '—';
+
+      hud.innerHTML = `
+        <div><b>${setName}</b> • Zoom ${zoomTxt}</div>
+        <div class="small">Center: ${state.cx.toFixed(8)}, ${state.cy.toFixed(8)}</div>
+        <div class="small">Skala: ${state.scale.toExponential(3)} • Iter: ${state.maxIter | 0}</div>
+        <div class="small">ESC: Exit • Space: Pause</div>
+      `;
+    }
+
+    function frame(now) {
+      const dt = (now - last) / 1000;
+      last = now;
+
+      resize();
+
+      if (state.autoIter) {
+        state.maxIter = calcAutoIter();
+        elIter.value = String(state.maxIter);
+        updateIterUI();
+      }
+
+      // Farbversatz nur im Auto-Mode animieren (damit UI im Fenster stabil bleibt)
+      if (auto.active) {
+        state.colorShift = (state.colorShift + dt * 0.025) % 1;
+      }
+
+      if (auto.active) updateAuto(now);
+
+      draw();
+      updateHud();
+
+      requestAnimationFrame(frame);
+    }
+
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>
