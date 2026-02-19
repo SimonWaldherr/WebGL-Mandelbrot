@@ -3,6 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <!-- iOS: Vollbild-Webapp-Modus und Statusleistenfarbe -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <!-- Android Chrome: Browser-Toolbar-Farbe -->
+  <meta name="theme-color" content="#000000" />
+  <!-- Allgemeines PWA-Flag für Android -->
+  <meta name="mobile-web-app-capable" content="yes" />
   <title>Fraktal Explorer – Mandelbrot / Julia</title>
   <style>
     :root {
@@ -17,19 +24,25 @@
       overflow: hidden;
       background: #000;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      /* Verhindert elastisches Scrollen / Overscroll auf iOS und Android */
+      overscroll-behavior: none;
     }
 
     #glcanvas {
       width: 100vw;
       height: 100vh;
+      /* dvh = dynamische Viewport-Höhe (iOS 16+): passt sich beim Ein-/Ausblenden
+         der Browser-Adressleiste an; 100vh bleibt als Fallback für ältere Browser */
+      height: 100dvh;
       display: block;
       touch-action: none;
     }
 
     #ui {
       position: fixed;
-      top: 12px;
-      left: 12px;
+      /* env(safe-area-inset-*): Abstand zum Rand bei iOS-Geräten mit Notch/Dynamic Island */
+      top: calc(12px + env(safe-area-inset-top, 0px));
+      left: calc(12px + env(safe-area-inset-left, 0px));
       width: 340px;
       max-width: calc(100vw - 24px);
       background: var(--panel-bg);
@@ -67,6 +80,9 @@
       background: rgba(0,0,0,0.25);
       color: var(--panel-fg);
       outline: none;
+      /* Verhindert den 300ms-Tap-Delay auf iOS/Android und doppeltes Antippen
+         zum Zoomen, ohne die eigenen Pinch-Gesten am Canvas zu beeinflussen */
+      touch-action: manipulation;
     }
 
     #ui input[type="range"] {
@@ -130,8 +146,9 @@
 
     #hud {
       position: fixed;
-      top: 12px;
-      right: 12px;
+      /* Abstand zum Rand + iOS Safe Area */
+      top: calc(12px + env(safe-area-inset-top, 0px));
+      right: calc(12px + env(safe-area-inset-right, 0px));
       background: rgba(0,0,0,0.35);
       color: #fff;
       border: 1px solid rgba(255,255,255,0.12);
@@ -258,15 +275,34 @@
   <script type="module">
     /**
      * Fraktal Explorer – WebGL2 (Mandelbrot + Julia)
-     * - Non-fullscreen: UI, Pan+Zoom, Parameter ändern.
-     * - Fullscreen: UI ausgeblendet, Auto-Zoom in zufällige interessante Bereiche.
      *
-     * Hinweis: Sehr tiefe Zooms sind durch Float-Praezision von WebGL begrenzt (ca. ~1e-7 ... 1e-8).
+     * Architektur:
+     *  - Rendering: WebGL2-Fragment-Shader berechnet jeden Pixel unabhängig (massiv parallel).
+     *  - Zustand: Das `state`-Objekt hält alle Parameter (Position, Zoom, Farbe usw.).
+     *  - UI: Liest/schreibt `state` über Event-Listener; syncUIFromState() synchronisiert
+     *    das UI mit dem aktuellen Zustand.
+     *  - Loop: requestAnimationFrame → frame() → resize() + draw() + updateHud()
+     *
+     * Bedienung:
+     *  - Desktop: Scrollrad = Zoom, Ziehen = Pan, Doppelklick = Zoom-In, F = Fullscreen
+     *  - Mobile: 1-Finger = Pan, 2-Finger-Pinch = Zoom
+     *  - Fullscreen: Auto-Zoom läuft automatisch, ESC beendet ihn
+     *
+     * Einschränkungen:
+     *  - Zooms tiefer als ~1e-7 sind wegen float32-Präzision in WebGL instabil.
+     *  - Fullscreen API: auf iOS Safari nur mit Vendor-Prefix (webkitRequestFullscreen)
+     *    und nur unter bestimmten Bedingungen verfügbar.
      */
 
     const canvas = document.getElementById('glcanvas');
     const ui = document.getElementById('ui');
     const hud = document.getElementById('hud');
+
+    // --- iOS/Android: verhindert elastisches Bounce-Scrollen auf dem Dokument ---
+    // `overscroll-behavior: none` (CSS) deckt moderne Browser ab; diese Zeile
+    // greift als Fallback für ältere iOS-Versionen (<16), die das CSS-Property
+    // noch nicht unterstützen.
+    document.addEventListener('touchmove', (e) => { e.preventDefault(); }, { passive: false });
 
     const gl = canvas.getContext('webgl2', {
       antialias: false,
@@ -283,7 +319,8 @@
           <h2 style="margin:0 0 8px;">WebGL2 nicht verfügbar</h2>
           <p style="opacity:0.85; line-height:1.4;">
             Dieser Mandelbrot/Julia‑Generator nutzt WebGL2 für Geschwindigkeit. Bitte einen modernen Browser nutzen
-            (Chrome/Edge/Firefox/Safari) und sicherstellen, dass WebGL aktiviert ist.
+            (Chrome 58+, Edge 79+, Firefox 51+, Safari 15+) und sicherstellen, dass WebGL aktiviert ist.<br />
+            iOS: WebGL2 erfordert mindestens iOS 15 / Safari 15.
           </p>
         </div>
       `;
@@ -704,11 +741,44 @@
       syncUIFromState();
     });
 
+    // ---------- Fullscreen API (mit webkit-Prefix für Safari/iOS) ----------
+    // Safari benötigt webkitRequestFullscreen; Standard-API bevorzugt.
+
+    function fsRequest(el) {
+      if (el.requestFullscreen)       return el.requestFullscreen();
+      if (el.webkitRequestFullscreen) return el.webkitRequestFullscreen();
+      return Promise.reject(new Error('Fullscreen API not supported'));
+    }
+
+    function fsExit() {
+      if (document.exitFullscreen)       return document.exitFullscreen();
+      if (document.webkitExitFullscreen) return document.webkitExitFullscreen();
+      return Promise.reject(new Error('Fullscreen API not supported'));
+    }
+
+    function fsElement() {
+      return document.fullscreenElement || document.webkitFullscreenElement || null;
+    }
+
+    // Fullscreen-Button deaktivieren, wenn die API komplett fehlt (z. B. iOS-Einschränkung)
+    const supportsFullscreen = !!(
+      document.documentElement.requestFullscreen ||
+      document.documentElement.webkitRequestFullscreen
+    );
+    if (!supportsFullscreen) {
+      elFullscreen.disabled = true;
+      elFullscreen.title = 'Fullscreen wird auf diesem Gerät nicht unterstützt';
+    }
+
     elFullscreen.addEventListener('click', async () => {
-      if (!document.fullscreenElement) {
-        await document.documentElement.requestFullscreen();
-      } else {
-        await document.exitFullscreen();
+      try {
+        if (!fsElement()) {
+          await fsRequest(document.documentElement);
+        } else {
+          await fsExit();
+        }
+      } catch {
+        // Vollbild-Anfrage abgelehnt (z. B. auf iOS ohne Nutzer-Geste)
       }
     });
 
@@ -831,7 +901,14 @@
     canvas.addEventListener('wheel', (e) => {
       if (auto.active) return;
       e.preventDefault();
-      const zoomFactor = Math.exp(e.deltaY * 0.0015);
+
+      // deltaMode normalisieren: Browser/Trackpads können Werte in Pixeln (0),
+      // Zeilen (1) oder Seiten (2) liefern – auf Pixel-Äquivalente umrechnen.
+      let delta = e.deltaY;
+      if (e.deltaMode === 1) delta *= 40;   // DOM_DELTA_LINE  (~40px pro Zeile)
+      if (e.deltaMode === 2) delta *= 400;  // DOM_DELTA_PAGE  (~400px pro Seite)
+
+      const zoomFactor = Math.exp(delta * 0.0015);
       zoomAt(e.clientX, e.clientY, zoomFactor);
 
       elCenterX.value = String(state.cx);
@@ -1000,8 +1077,10 @@
       auto.onDone = null;
     }
 
-    document.addEventListener('fullscreenchange', () => {
-      const fs = !!document.fullscreenElement;
+    // fullscreenchange-Handler als benannte Funktion, damit er für beide Events
+    // (Standard und webkit-Prefix) nur einmal definiert werden muss.
+    function onFullscreenChange() {
+      const fs = !!fsElement();
       if (fs) startAuto();
       else {
         stopAuto();
@@ -1009,12 +1088,17 @@
         ui.classList.remove('hidden');
         syncUIFromState();
       }
-    });
+    }
+    // Standard (Chrome, Firefox, Edge) + webkit-Prefix (Safari, iOS Safari)
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
     window.addEventListener('keydown', async (e) => {
       if (e.key === 'f' || e.key === 'F') {
-        if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
-        else await document.exitFullscreen();
+        try {
+          if (!fsElement()) await fsRequest(document.documentElement);
+          else await fsExit();
+        } catch { /* Fullscreen API nicht verfügbar */ }
       }
       if (e.key === 'r' || e.key === 'R') {
         stopAuto();
@@ -1022,8 +1106,8 @@
         syncUIFromState();
       }
       if (e.key === ' ') {
-        // Space: Pause/Resume im Fullscreen
-        if (document.fullscreenElement) {
+        // Space: Pause/Resume im Fullscreen-Modus
+        if (fsElement()) {
           auto.active = !auto.active;
           if (auto.active && !auto.onDone) scheduleNextAutoHop();
         }
